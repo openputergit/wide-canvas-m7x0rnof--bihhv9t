@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice-Enabled Train Booking</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #f0f2f5;
+        }
+        .listening-indicator {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="min-h-screen p-4">
+        <!-- Listening Indicator -->
+        <div v-if="isListening" class="fixed top-4 right-4 flex items-center gap-2 bg-green-100 p-2 rounded-full">
+            <div class="w-3 h-3 bg-green-500 rounded-full listening-indicator"></div>
+            <span class="text-sm text-green-700">{{translations[selectedLanguage || 'english'].listening}}</span>
+        </div>
+
+        <!-- Main Container -->
+        <div class="max-w-md mx-auto bg-white rounded-xl shadow-lg p-6 space-y-6">
+            <!-- Current Input Feedback -->
+            <div v-if="currentTranscript" class="bg-blue-50 p-3 rounded-lg">
+                <p class="text-sm text-blue-600">{{currentTranscript}}</p>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div class="bg-blue-600 h-2.5 rounded-full" :style="`width: ${progress}%`"></div>
+            </div>
+
+            <!-- Screens -->
+            <div v-if="currentScreen === 'welcome'" class="text-center space-y-6">
+                <h1 class="text-2xl font-bold text-gray-800">Voice Train Booking</h1>
+                <p class="text-lg">Please speak your preferred language:</p>
+                <div class="space-y-2">
+                    <p>English | తెలుగు | हिंदी | தமிழ்</p>
+                </div>
+                <div class="text-blue-600 text-6xl">
+                    <i class="bi bi-mic-fill"></i>
+                </div>
+            </div>
+
+            <template v-if="selectedLanguage">
+                <!-- User Details Screen -->
+                <div v-if="currentScreen === 'userDetails'" class="space-y-4">
+                    <h2 class="text-xl font-semibold">{{translations[selectedLanguage].personalDetails}}</h2>
+                    <div class="space-y-3">
+                        <div class="p-3 border rounded-lg">
+                            <p class="text-sm text-gray-500">{{translations[selectedLanguage].name}}</p>
+                            <p class="text-lg">{{userDetails.name || '...'}}</p>
+                        </div>
+                        <div class="p-3 border rounded-lg">
+                            <p class="text-sm text-gray-500">{{translations[selectedLanguage].phone}}</p>
+                            <p class="text-lg">{{userDetails.phone || '...'}}</p>
+                        </div>
+                        <div class="p-3 border rounded-lg">
+                            <p class="text-sm text-gray-500">{{translations[selectedLanguage].age}}</p>
+                            <p class="text-lg">{{userDetails.age || '...'}}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Journey Details Screen -->
+                <div v-if="currentScreen === 'journeyDetails'" class="space-y-4">
+                    <h2 class="text-xl font-semibold">{{translations[selectedLanguage].journeyDetails}}</h2>
+                    <div v-if="states.length > 0" class="space-y-3">
+                        <div class="p-3 border rounded-lg">
+                            <p class="text-sm text-gray-500">{{translations[selectedLanguage].from}}</p>
+                            <p class="text-lg">{{journeyDetails.source || '...'}}</p>
+                        </div>
+                        <div class="p-3 border rounded-lg">
+                            <p class="text-sm text-gray-500">{{translations[selectedLanguage].to}}</p>
+                            <p class="text-lg">{{journeyDetails.destination || '...'}}</p>
+                        </div>
+                        <div class="p-3 border rounded-lg">
+                            <p class="text-sm text-gray-500">{{translations[selectedLanguage].date}}</p>
+                            <p class="text-lg">{{journeyDetails.date || '...'}}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Train List Screen -->
+                <div v-if="currentScreen === 'trainList'" class="space-y-4">
+                    <h2 class="text-xl font-semibold">{{translations[selectedLanguage].availableTrains}}</h2>
+                    <div class="space-y-3">
+                        <div v-for="(train, index) in availableTrains" :key="index"
+                             class="p-4 border rounded-lg">
+                            <p class="font-medium">{{index + 1}}. {{train.name}}</p>
+                            <p class="text-sm text-gray-600">{{train.departure}} - {{train.arrival}}</p>
+                            <p class="text-sm text-gray-600">{{translations[selectedLanguage].seats}}: {{train.seats}}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Payment Screen -->
+                <div v-if="currentScreen === 'payment'" class="space-y-4">
+                    <h2 class="text-xl font-semibold">{{translations[selectedLanguage].payment}}</h2>
+                    <div class="p-4 bg-gray-50 rounded-lg">
+                        <h3 class="font-medium mb-2">{{translations[selectedLanguage].summary}}</h3>
+                        <div class="space-y-2">
+                            <p>{{selectedTrain?.name}}</p>
+                            <p>{{journeyDetails.source}} → {{journeyDetails.destination}}</p>
+                            <p>{{journeyDetails.date}}</p>
+                            <p class="font-medium mt-2">{{translations[selectedLanguage].total}}: ₹{{selectedTrain?.price || 0}}</p>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue
+
+        createApp({
+            data() {
+                return {
+                    currentScreen: 'welcome',
+                    selectedLanguage: null,
+                    isListening: false,
+                    recognition: null,
+                    currentTranscript: '',
+                    progress: 0,
+                    userDetails: { name: '', phone: '', age: '' },
+                    journeyDetails: { source: '', destination: '', date: '' },
+                    selectedTrain: null,
+                    states: ['Andhra Pradesh', 'Delhi', 'Tamil Nadu'],
+                    availableTrains: [
+                        {id: 1, name: 'Chennai Express', departure: '10:00', arrival: '22:00', seats: 45, price: 1200},
+                        {id: 2, name: 'Delhi Rajdhani', departure: '16:00', arrival: '06:00', seats: 32, price: 2100},
+                        {id: 3, name: 'AP Express', departure: '20:00', arrival: '08:00', seats: 28, price: 1500}
+                    ],
+                    translations: {
+                        english: {
+                            listening: 'Listening...',
+                            personalDetails: 'Personal Details',
+                            name: 'Name',
+                            phone: 'Phone Number',
+                            age: 'Age',
+                            journeyDetails: 'Journey Details',
+                            from: 'From',
+                            to: 'To',
+                            date: 'Date',
+                            availableTrains: 'Available Trains',
+                            seats: 'Available Seats',
+                            payment: 'Payment Details',
+                            summary: 'Booking Summary',
+                            total: 'Total Amount'
+                        },
+                        telugu: {
+                            listening: 'వింటున్నాను...',
+                            personalDetails: 'వ్యక్తిగత వివరాలు',
+                            name: 'పేరు',
+                            phone: 'ఫోన్ నంబర్',
+                            age: 'వయస్సు',
+                            journeyDetails: 'ప్రయాణ వివరాలు',
+                            from: 'నుండి',
+                            to: 'వరకు',
+                            date: 'తేదీ',
+                            availableTrains: 'అందుబాటులో ఉన్న రైళ్ళు',
+                            seats: 'అందుబాటులో ఉన్న సీట్లు',
+                            payment: 'చెల్లింపు వివరాలు',
+                            summary: 'బుకింగ్ సారాంశం',
+                            total: 'మొత్తం డబ్బు'
+                        }
+                    }
+                }
+            },
+            mounted() {
+                this.initSpeechRecognition();
+                this.startListening();
+                this.speak('Welcome to Voice Train Booking. Please speak your preferred language - English or Telugu');
+                this.speak('వాయిస్ ట్రైన్ బుకింగ్‌కి స్వాగతం. దయచేసి మీ భాష ఎంచుకోండి - ఇంగ్లీష్ లేదా తెలుగు');
+            },
+            methods: {
+                initSpeechRecognition() {
+                    if ('webkitSpeechRecognition' in window) {
+                        this.recognition = new webkitSpeechRecognition();
+                        this.recognition.continuous = true;
+                        this.recognition.interimResults = true;
+
+                        this.recognition.onstart = () => {
+                            this.isListening = true;
+                        };
+
+                        this.recognition.onend = () => {
+                            this.isListening = false;
+                            // Restart recognition automatically
+                            setTimeout(() => this.startListening(), 1000);
+                        };
+
+                        this.recognition.onresult = (event) => {
+                            const transcript = Array.from(event.results)
+                                .map(result => result[0].transcript)
+                                .join('')
+                                .toLowerCase();
+                            
+                            this.currentTranscript = transcript;
+                            this.handleVoiceInput(transcript);
+                        };
+                    }
+                },
+
+                startListening() {
+                    if (this.recognition) {
+                        this.recognition.start();
+                    }
+                },
+
+                speak(text) {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = this.selectedLanguage === 'telugu' ? 'te-IN' : 'en-IN';
+                    speechSynthesis.speak(utterance);
+                },
+
+                handleVoiceInput(transcript) {
+                    // Language Selection
+                    if (this.currentScreen === 'welcome') {
+                        if (transcript.includes('english')) {
+                            this.selectedLanguage = 'english';
+                            this.progress = 20;
+                            this.currentScreen = 'userDetails';
+                            this.speak('Please tell me your name');
+                        } else if (transcript.includes('telugu')) {
+                            this.selectedLanguage = 'telugu';
+                            this.progress = 20;
+                            this.currentScreen = 'userDetails';
+                            this.speak('దయచేసి మీ పేరు చెప్పండి');
+                        }
+                    }
+                    // User Details
+                    else if (this.currentScreen === 'userDetails') {
+                        if (!this.userDetails.name) {
+                            this.userDetails.name = transcript;
+                            this.progress = 40;
+                            this.speak(this.selectedLanguage === 'english' ? 
+                                'Please tell me your phone number' : 
+                                'దయచేసి మీ ఫోన్ నంబర్ చెప్పండి');
+                        }
+                        else if (!this.userDetails.phone && /\d/.test(transcript)) {
+                            this.userDetails.phone = transcript.replace(/\D/g, '');
+                            this.progress = 60;
+                            this.currentScreen = 'journeyDetails';
+                            this.speak(this.selectedLanguage === 'english' ? 
+                                'Where would you like to travel from?' : 
+                                'మీరు ఎక్కడ నుండి ప్రయాణించాలనుకుంటున్నారు?');
+                        }
+                    }
+                    // Journey Details
+                    else if (this.currentScreen === 'journeyDetails') {
+                        if (!this.journeyDetails.source) {
+                            this.journeyDetails.source = transcript;
+                            this.progress = 80;
+                            this.speak(this.selectedLanguage === 'english' ? 
+                                'Where would you like to travel to?' : 
+                                'మీరు ఎక్కడికి ప్రయాణించాలనుకుంటున్నారు?');
+                        }
+                        else if (!this.journeyDetails.destination) {
+                            this.journeyDetails.destination = transcript;
+                            this.progress = 100;
+                            this.currentScreen = 'trainList';
+                            this.speak(this.selectedLanguage === 'english' ? 
+                                'Here are the available trains' : 
+                                'అందుబాటులో ఉన్న రైళ్ళు ఇవి');
+                        }
+                    }
+                }
+            }
+        }).mount('#app')
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
